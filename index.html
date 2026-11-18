@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- maximum-scale=1 stops iOS from zooming the whole app when a text field gets focus; the document has its own pinch-zoom. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="description" content="Edit, sign and annotate PDFs in your browser. Files never leave your device." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="PDF Editor" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>PDF Editor</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='2' width='24' height='28' rx='4' fill='%232563eb'/%3E%3Cpath d='M10 11h12M10 16h12M10 21h7' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Top bar: file actions -->
+      <header class="topbar">
+        <div class="brand">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="2" width="24" height="28" rx="5" fill="currentColor"/><path d="M10 11h12M10 16h12M10 21h7" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+          <span>PDF Editor</span>
+        </div>
+        <div class="doc-title" id="doc-title" hidden>
+          <span id="doc-name"></span><span class="dirty-dot" id="dirty-dot" title="Unsaved changes" hidden></span>
+        </div>
+        <div class="spacer"></div>
+        <div class="btn-group">
+          <button class="btn" id="btn-open" data-tip="Open PDF (Ctrl+O)"><i data-lucide="folder-open"></i><span>Open</span></button>
+          <button class="btn" id="btn-new" data-tip="New blank PDF"><i data-lucide="file-plus-2"></i><span>New</span></button>
+          <button class="btn needs-doc" id="btn-add-pdf" data-tip="Append pages from another PDF"><i data-lucide="files"></i><span>Merge PDF</span></button>
+        </div>
+        <div class="divider"></div>
+        <div class="btn-group">
+          <button class="btn icon needs-doc" id="btn-undo" data-tip="Undo (Ctrl+Z)" disabled><i data-lucide="undo-2"></i></button>
+          <button class="btn icon needs-doc" id="btn-redo" data-tip="Redo (Ctrl+Y)" disabled><i data-lucide="redo-2"></i></button>
+        </div>
+        <div class="divider"></div>
+        <div class="btn-group">
+          <button class="btn needs-doc" id="btn-save" data-tip="Save (Ctrl+S)"><i data-lucide="save"></i><span>Save</span></button>
+          <button class="btn primary needs-doc" id="btn-download" data-tip="Download the edited PDF"><i data-lucide="download"></i><span>Download</span></button>
+        </div>
+      </header>
+
+      <!-- Tool bar: editing tools + contextual properties -->
+      <div class="toolbar needs-doc-area">
+        <div class="tools" id="tools">
+          <button class="tool" data-tool="select" data-tip="Select & move (V)"><i data-lucide="mouse-pointer-2"></i><span>Select</span></button>
+          <button class="tool" data-tool="editText" data-tip="Edit existing text (E)"><i data-lucide="text-cursor-input"></i><span>Edit text</span></button>
+          <button class="tool" data-tool="text" data-tip="Add text (T)"><i data-lucide="type"></i><span>Add text</span></button>
+          <button class="tool" data-tool="draw" data-tip="Freehand draw (D)"><i data-lucide="pencil"></i><span>Draw</span></button>
+          <button class="tool" data-tool="highlight" data-tip="Highlight — click a line or drag (H)"><i data-lucide="highlighter"></i><span>Highlight</span></button>
+          <div class="tool-flyout">
+            <button class="tool" data-tool="shape" id="shape-tool" data-tip="Shapes (R)"><i data-lucide="square" id="shape-icon"></i><span>Shapes</span><em class="caret"></em></button>
+            <div class="flyout" id="shape-menu" hidden>
+              <button data-shape="rect"><i data-lucide="square"></i>Rectangle <kbd>R</kbd></button>
+              <button data-shape="ellipse"><i data-lucide="circle"></i>Ellipse <kbd>O</kbd></button>
+              <button data-shape="line"><i data-lucide="minus"></i>Line <kbd>L</kbd></button>
+              <button data-shape="arrow"><i data-lucide="move-up-right"></i>Arrow <kbd>A</kbd></button>
+            </div>
+          </div>
+          <button class="tool" data-tool="whiteout" data-tip="Whiteout — cover content (W)"><i data-lucide="eraser"></i><span>Whiteout</span></button>
+          <button class="tool" data-tool="image" data-tip="Insert image (I)"><i data-lucide="image"></i><span>Image</span></button>
+          <button class="tool" data-tool="signature" data-tip="Add signature (S)"><i data-lucide="signature"></i><span>Sign</span></button>
+        </div>
+        <div class="props" id="props">
+          <span class="hint" id="tool-hint"></span>
+
+          <div class="prop-group" data-group="font" hidden>
+            <select id="p-font" data-tip="Font">
+              <option value="sans">Helvetica</option>
+              <option value="serif">Times</option>
+              <option value="mono">Courier</option>
+            </select>
+            <input id="p-size" type="number" min="4" max="200" step="1" data-tip="Font size" />
+            <div class="seg">
+              <button id="p-bold" data-tip="Bold (Ctrl+B)"><i data-lucide="bold"></i></button>
+              <button id="p-italic" data-tip="Italic (Ctrl+I)"><i data-lucide="italic"></i></button>
+              <button id="p-underline" data-tip="Underline (Ctrl+U)"><i data-lucide="underline"></i></button>
+            </div>
+            <div class="seg">
+              <button data-align="left" data-tip="Align left"><i data-lucide="align-left"></i></button>
+              <button data-align="center" data-tip="Align center"><i data-lucide="align-center"></i></button>
+              <button data-align="right" data-tip="Align right"><i data-lucide="align-right"></i></button>
+            </div>
+          </div>
+
+          <label class="prop-group swatch-input" data-group="color" hidden data-tip="Color">
+            <span class="lbl" id="p-color-label">Color</span>
+            <input id="p-color" type="color" />
+          </label>
+
+          <div class="prop-group" data-group="highlight" hidden>
+            <span class="lbl">Color</span>
+            <div class="swatches" id="p-hl-swatches">
+              <button data-color="#facc15" style="--c:#facc15" data-tip="Yellow"></button>
+              <button data-color="#4ade80" style="--c:#4ade80" data-tip="Green"></button>
+              <button data-color="#60a5fa" style="--c:#60a5fa" data-tip="Blue"></button>
+              <button data-color="#f472b6" style="--c:#f472b6" data-tip="Pink"></button>
+              <button data-color="#fb923c" style="--c:#fb923c" data-tip="Orange"></button>
+            </div>
+          </div>
+
+          <label class="prop-group" data-group="width" hidden data-tip="Line width">
+            <span class="lbl">Width</span>
+            <input id="p-width" type="range" min="0.5" max="20" step="0.5" />
+            <output id="p-width-out"></output>
+          </label>
+
+          <div class="prop-group" data-group="fill" hidden>
+            <label class="check" data-tip="Fill shape"><input id="p-fill-on" type="checkbox" /><span>Fill</span></label>
+            <input id="p-fill" type="color" data-tip="Fill color" />
+          </div>
+
+          <label class="prop-group" data-group="opacity" hidden data-tip="Opacity">
+            <span class="lbl">Opacity</span>
+            <input id="p-opacity" type="range" min="0.1" max="1" step="0.05" />
+            <output id="p-opacity-out"></output>
+          </label>
+
+          <div class="prop-group" data-group="actions" hidden>
+            <div class="seg">
+              <button id="a-duplicate" data-tip="Duplicate (Ctrl+D)"><i data-lucide="copy-plus"></i></button>
+              <button id="a-front" data-tip="Bring to front"><i data-lucide="bring-to-front"></i></button>
+              <button id="a-back" data-tip="Send to back"><i data-lucide="send-to-back"></i></button>
+              <button id="a-delete" class="danger" data-tip="Delete (Del)"><i data-lucide="trash-2"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="main">
+        <!-- Page thumbnails -->
+        <aside class="sidebar needs-doc-area">
+          <div class="sidebar-head">
+            <span>Pages</span>
+            <div class="sidebar-actions">
+              <button class="btn icon sm mobile-only" id="btn-close-pages" data-tip="Close"><i data-lucide="x"></i></button>
+              <button class="btn icon sm" id="btn-insert-blank" data-tip="Insert blank page after current"><i data-lucide="file-plus"></i></button>
+              <button class="btn icon sm" id="btn-rotate-page" data-tip="Rotate current page"><i data-lucide="rotate-cw"></i></button>
+              <button class="btn icon sm" id="btn-delete-page" data-tip="Delete current page"><i data-lucide="trash-2"></i></button>
+            </div>
+          </div>
+          <div class="thumbs" id="thumbs"></div>
+        </aside>
+        <div class="drawer-backdrop" id="drawer-backdrop"></div>
+
+        <!-- Page viewer -->
+        <section class="viewer-wrap">
+         <div class="viewer" id="viewer">
+          <div class="pages" id="pages"></div>
+
+          <div class="empty" id="empty">
+            <div class="empty-card">
+              <div class="empty-icon"><i data-lucide="file-text"></i></div>
+              <h1>Edit any PDF</h1>
+              <p>Edit text, add text, sign, highlight, draw, cover content, and rearrange pages.</p>
+              <div class="empty-actions">
+                <button class="btn primary lg" id="empty-open"><i data-lucide="folder-open"></i><span>Open a PDF</span></button>
+                <button class="btn lg" id="empty-new"><i data-lucide="file-plus-2"></i><span>Blank PDF</span></button>
+              </div>
+              <p class="muted small">or drag and drop a file anywhere · your files never leave this computer</p>
+            </div>
+          </div>
+         </div>
+
+          <div class="navpill needs-doc-area" id="navpill">
+            <button class="btn icon sm mobile-only" id="btn-pages" data-tip="Pages"><i data-lucide="layout-grid"></i></button>
+            <span class="sep mobile-only"></span>
+            <button class="btn icon sm" id="btn-prev" data-tip="Previous page"><i data-lucide="chevron-left"></i></button>
+            <span class="pageno"><input id="page-input" type="text" inputmode="numeric" /> / <span id="page-count">0</span></span>
+            <button class="btn icon sm" id="btn-next" data-tip="Next page"><i data-lucide="chevron-right"></i></button>
+            <span class="sep"></span>
+            <button class="btn icon sm" id="btn-zoom-out" data-tip="Zoom out (Ctrl -)"><i data-lucide="zoom-out"></i></button>
+            <button class="zoom-label" id="zoom-label" data-tip="Fit to width">100%</button>
+            <button class="btn icon sm" id="btn-zoom-in" data-tip="Zoom in (Ctrl +)"><i data-lucide="zoom-in"></i></button>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Signature dialog -->
+    <div class="modal" id="sig-modal" hidden>
+      <div class="modal-card sig-card" role="dialog" aria-modal="true" aria-labelledby="sig-title">
+        <header>
+          <h2 id="sig-title">Add signature</h2>
+          <button class="btn icon sm" data-close data-tip="Close"><i data-lucide="x"></i></button>
+        </header>
+        <div class="tabs">
+          <button data-tab="draw" class="active">Draw</button>
+          <button data-tab="type">Type</button>
+        </div>
+        <div class="tab-pane" data-pane="draw">
+          <div class="sig-pad-wrap">
+            <canvas id="sig-pad"></canvas>
+            <div class="sig-line"></div>
+            <span class="sig-placeholder" id="sig-placeholder">Sign here</span>
+          </div>
+        </div>
+        <div class="tab-pane" data-pane="type" hidden>
+          <input id="sig-text" type="text" placeholder="Type your name" maxlength="60" />
+          <div class="sig-type-preview" id="sig-type-preview"></div>
+        </div>
+        <div class="sig-options">
+          <div class="swatches" id="sig-colors">
+            <button data-color="#111827" style="--c:#111827" class="active" data-tip="Black"></button>
+            <button data-color="#1d4ed8" style="--c:#1d4ed8" data-tip="Blue"></button>
+            <button data-color="#b91c1c" style="--c:#b91c1c" data-tip="Red"></button>
+          </div>
+          <button class="btn sm" id="sig-clear">Clear</button>
+        </div>
+        <div class="sig-saved" id="sig-saved-wrap" hidden>
+          <div class="lbl">Recent signatures</div>
+          <div class="sig-saved-list" id="sig-saved"></div>
+        </div>
+        <footer>
+          <button class="btn" data-close>Cancel</button>
+          <button class="btn primary" id="sig-insert">Insert signature</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Shown on phones after the PDF is built: sharing must start from a tap. -->
+    <div class="modal" id="ready-modal" hidden>
+      <div class="modal-card ready-card" role="dialog" aria-modal="true" aria-labelledby="ready-title">
+        <div class="ready-icon"><i data-lucide="file-check-2"></i></div>
+        <h2 id="ready-title">Your PDF is ready</h2>
+        <p class="muted" id="ready-name"></p>
+        <div class="ready-actions">
+          <button class="btn primary lg" id="ready-share"><i data-lucide="share-2"></i><span>Share or save to Files</span></button>
+          <button class="btn lg" id="ready-download"><i data-lucide="download"></i><span>Download</span></button>
+          <button class="btn" data-close>Close</button>
+        </div>
+      </div>
+    </div>
+
+    <textarea id="keyboard-proxy" aria-hidden="true" tabindex="-1"></textarea>
+    <div class="drop-overlay" id="drop-overlay" hidden><div><i data-lucide="upload"></i><span id="drop-text">Drop to open</span></div></div>
+    <div class="busy" id="busy" hidden><div class="spinner"></div><span id="busy-text">Working…</span></div>
+    <div class="toasts" id="toasts"></div>
+    <input type="file" id="file-pdf" accept="application/pdf,.pdf" hidden />
+    <input type="file" id="file-merge" accept="application/pdf,.pdf" multiple hidden />
+    <input type="file" id="file-image" accept="image/png,image/jpeg,image/webp,image/gif" hidden />
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
