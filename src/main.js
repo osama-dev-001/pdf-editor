@@ -44,6 +44,9 @@ import {
   LayoutGrid,
   Share2,
   FileCheck2,
+  Copy,
+  ClipboardPaste,
+  ImageDown,
 } from 'lucide';
 import { doc, on, setDirty, canUndo, canRedo } from './state.js';
 import { Editor } from './editor.js';
@@ -60,7 +63,8 @@ createIcons({
     MousePointer2, TextCursorInput, Type, Pencil, Highlighter, Square, Circle, Minus, MoveUpRight, Eraser,
     Image, Signature, FolderOpen, FilePlus2, FilePlus, Files, Undo2, Redo2, Save, Download, RotateCw, Trash2,
     ChevronLeft, ChevronRight, ZoomIn, ZoomOut, FileText, X, Upload, Bold, Italic, Underline, AlignLeft,
-    AlignCenter, AlignRight, CopyPlus, BringToFront, SendToBack, LayoutGrid, Share2, FileCheck2,
+    AlignCenter, AlignRight, CopyPlus, BringToFront, SendToBack, LayoutGrid, Share2, FileCheck2, Copy,
+    ClipboardPaste, ImageDown,
   },
 });
 
@@ -478,12 +482,15 @@ document.addEventListener('keydown', (e) => {
   else if (key === 's') signature.open();
 });
 
-// Copy / paste objects, and paste images from the system clipboard.
+// Copy / paste objects and pictures from the PDF, and paste images from the system clipboard.
 document.addEventListener('copy', (e) => {
   if (!editor.hasDocument || isTypingTarget(e.target)) return;
   if (editor.getSelection().objects.length) {
     e.preventDefault();
     editor.copySelection();
+  } else if (editor.imagePicker.selection) {
+    e.preventDefault();
+    editor.imagePicker.copy();
   }
 });
 document.addEventListener('paste', async (e) => {
@@ -491,11 +498,33 @@ document.addEventListener('paste', async (e) => {
   const files = [...(e.clipboardData?.files || [])].filter((f) => f.type.startsWith('image/'));
   if (files.length) {
     e.preventDefault();
-    await insertImageFiles(files);
+    // Our own copied PDF picture comes back as a file: paste our copy instead,
+    // which keeps its size and position.
+    if (files.length === 1 && (await isCopiedPdfImage(files[0]))) editor.paste();
+    else await insertImageFiles(files);
   } else if (editor.clipboard) {
     e.preventDefault();
     editor.paste();
   }
+});
+
+async function isCopiedPdfImage(file) {
+  const info = editor.clipboardImage;
+  if (!info) return false;
+  if (info.preferInternal) return true; // the system clipboard couldn't take our copy
+  try {
+    const bmp = await createImageBitmap(file);
+    const same = bmp.width === info.width && bmp.height === info.height;
+    bmp.close();
+    return same;
+  } catch {
+    return false;
+  }
+}
+
+// Clicking the gray area around the pages drops a selected PDF picture.
+$('#viewer').addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.page')) editor.imagePicker.clear();
 });
 
 /* ------------------------------ drag & drop ------------------------------ */

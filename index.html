@@ -65,7 +65,16 @@
           <button class="tool" data-tool="signature" data-tip="Add signature (S)"><i data-lucide="signature"></i><span>Sign</span></button>
         </div>
         <div class="props" id="props">
+          <div class="prop-group" data-group="paste" hidden>
+            <button class="btn sm prop-btn" id="a-paste" data-tip="Paste (Ctrl+V)"><i data-lucide="clipboard-paste"></i><span>Paste</span></button>
+          </div>
           <span class="hint" id="tool-hint"></span>
+
+          <div class="prop-group" data-group="pdfimage" hidden>
+            <span class="lbl">Picture in the PDF</span>
+            <button class="btn sm prop-btn" id="pi-copy" data-tip="Copy image (Ctrl+C)"><i data-lucide="copy"></i><span>Copy</span></button>
+            <button class="btn sm prop-btn" id="pi-save" data-tip="Save as PNG"><i data-lucide="image-down"></i><span>Save image</span></button>
+          </div>
 
           <div class="prop-group" data-group="font" hidden>
             <select id="p-font" data-tip="Font">

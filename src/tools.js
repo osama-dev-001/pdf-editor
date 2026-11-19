@@ -62,6 +62,11 @@ export class Tools {
       return;
     }
     const tool = this.editor.tool;
+    if (tool === 'select' && !e.target && !isTouch(e.e) && !view.canvas._currentTransform) {
+      // Pictures in the PDF can be clicked to copy them.
+      if (this.editor.imagePicker.hoverHit(view, e.scenePoint)) view.canvas.setCursor('pointer');
+      return;
+    }
     if (tool === 'editText' || tool === 'highlight') {
       if (tool === 'editText' && e.target) return view.hideHover();
       view.getTextRuns();
@@ -100,6 +105,12 @@ export class Tools {
     }
     if (!e.isClick) return;
     const touch = isTouch(e.e);
+    if (tool === 'select') {
+      // Clicking a picture in the PDF selects it (for Copy / Save image).
+      if (!e.target && !view.selectedAtPointerDown) this.editor.imagePicker.selectAt(view, e.scenePoint);
+      else this.editor.imagePicker.clear();
+      return;
+    }
     if (tool === 'text' && !(e.target instanceof IText)) {
       if (touch) focusKeyboardProxy();
       // Defer so Fabric finishes its own mouse-up handling first.

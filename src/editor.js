@@ -1,7 +1,7 @@
 /**
  * Editor: owns the page views, tools, zoom, selection and page operations.
  */
-import { util, ActiveSelection, FabricImage } from 'fabric';
+import { util, ActiveSelection, FabricImage, Point } from 'fabric';
 import {
   doc,
   assets,
@@ -21,6 +21,7 @@ import { openPdf } from './pdf.js';
 import { PageView } from './pageView.js';
 import { Tools } from './tools.js';
 import { Thumbnails } from './thumbnails.js';
+import { ImagePicker } from './imagePicker.js';
 import { buildPdf } from './exporter.js';
 import { mul, clamp, debounce, uid, toast } from './util.js';
 
@@ -39,6 +40,8 @@ export class Editor {
     this.activeView = null;
     this.currentIndex = 0;
     this.clipboard = null;
+    /** Set when the clipboard holds a picture copied from the PDF: its pixel size. */
+    this.clipboardImage = null;
     this.settings = {
       text: { fontFamily: 'sans', fontSize: 14, bold: false, italic: false, underline: false, fill: '#111111', align: 'left', opacity: 1 },
       shape: { stroke: '#dc2626', strokeWidth: 2, fill: '#fde68a', fillOn: false, opacity: 1 },
@@ -48,6 +51,7 @@ export class Editor {
       image: { opacity: 1 },
     };
     this.tools = new Tools(this);
+    this.imagePicker = new ImagePicker(this);
     this.thumbs = new Thumbnails(this, thumbsEl);
     this.observer = new IntersectionObserver((entries) => this.onIntersect(entries), {
       root: scroller,
@@ -122,6 +126,7 @@ export class Editor {
   }
 
   reset() {
+    this.imagePicker.clear({ silent: true });
     for (const v of this.views.values()) {
       this.observer.unobserve(v.el);
       v.destroy();
@@ -132,6 +137,7 @@ export class Editor {
     doc.sources.clear();
     assets.clear();
     this.clipboard = null;
+    this.clipboardImage = null;
     this.thumbs.reset();
     this.activeView = null;
     this.currentIndex = 0;
@@ -152,6 +158,14 @@ export class Editor {
       recs.push(makePageRecord({ srcId: src.id, srcIndex: i, view: page.view.slice(), baseRotation: page.rotate }));
     }
     return recs;
+  }
+
+  /** Which optional content (layers) is visible, for a page's source document. */
+  getOptionalContent(rec) {
+    const src = doc.sources.get(rec.srcId);
+    if (!src) return Promise.resolve(null);
+    src.optionalContent ??= src.pdf.getOptionalContentConfig().catch(() => null);
+    return src.optionalContent;
   }
 
   async getPdfPage(rec) {
@@ -192,6 +206,7 @@ export class Editor {
       this.views.delete(id);
     }
     if (this.activeView && !this.views.has(this.activeView.rec.id)) this.activeView = null;
+    this.imagePicker.validate();
     this.currentIndex = clamp(this.currentIndex, 0, Math.max(0, doc.pages.length - 1));
     this.thumbs.sync();
     this.updateCurrentPage();
@@ -222,6 +237,7 @@ export class Editor {
   onSelectionChanged(view) {
     const objs = view.canvas?.getActiveObjects() ?? [];
     if (objs.length) {
+      this.imagePicker.clear({ silent: true });
       const prev = this.activeView;
       this.activeView = view;
       if (prev && prev !== view && prev.canvas?.getActiveObject()) {
@@ -252,20 +268,25 @@ export class Editor {
     return v;
   }
 
-  /** Center of the visible part of a page, in page (scene) coordinates. */
-  visibleCenter(view) {
+  /** The part of a page that is on screen, in page (scene) coordinates, or null. */
+  visibleRect(view) {
     const pr = view.el.getBoundingClientRect();
     const sr = this.scroller.getBoundingClientRect();
     const left = Math.max(pr.left, sr.left);
     const right = Math.min(pr.right, sr.right);
     const top = Math.max(pr.top, sr.top);
     const bottom = Math.min(pr.bottom, sr.bottom);
+    if (right <= left || bottom <= top) return null;
+    const z = this.zoom;
+    return { x: (left - pr.left) / z, y: (top - pr.top) / z, width: (right - left) / z, height: (bottom - top) / z };
+  }
+
+  /** Center of the visible part of a page, in page (scene) coordinates. */
+  visibleCenter(view) {
+    const r = this.visibleRect(view);
     const { width, height } = view.size;
-    if (right <= left || bottom <= top) return { x: width / 2, y: height / 2 };
-    return {
-      x: clamp(((left + right) / 2 - pr.left) / this.zoom, 0, width),
-      y: clamp(((top + bottom) / 2 - pr.top) / this.zoom, 0, height),
-    };
+    if (!r) return { x: width / 2, y: height / 2 };
+    return { x: clamp(r.x + r.width / 2, 0, width), y: clamp(r.y + r.height / 2, 0, height) };
   }
 
   finishEditing() {
@@ -305,6 +326,7 @@ export class Editor {
   /* ============================ tools ============================ */
 
   setTool(tool) {
+    this.imagePicker.clear({ silent: true });
     if (tool === 'shape') tool = this.shape;
     if (SHAPES.includes(tool)) this.shape = tool;
     this.tool = tool;
@@ -343,8 +365,15 @@ export class Editor {
     const { view } = this.getSelection();
     const active = view?.canvas?.getActiveObject();
     if (!active || active.isEditing) return false;
-    this.clipboard = await active.clone();
+    this.setClipboard(await active.clone());
     return true;
+  }
+
+  /** `image`: pixel size of a picture copied from the PDF (see ImagePicker.copy). */
+  setClipboard(obj, image = null) {
+    this.clipboard = obj;
+    this.clipboardImage = image;
+    emit('selection'); // the Paste button may appear
   }
 
   async paste() {
@@ -355,6 +384,13 @@ export class Editor {
     const clone = await this.clipboard.clone();
     c.discardActiveObject();
     clone.set({ left: clone.left + 12, top: clone.top + 12, evented: true });
+    // Pasting onto another page, or one scrolled elsewhere: put it where the user is looking.
+    const at = clone.getCenterPoint();
+    const r = this.visibleRect(view);
+    if (!r || at.x < r.x || at.x > r.x + r.width || at.y < r.y || at.y > r.y + r.height) {
+      const vc = this.visibleCenter(view);
+      clone.setPositionByOrigin(new Point(vc.x, vc.y), 'center', 'center');
+    }
     if (clone instanceof ActiveSelection) {
       clone.canvas = c;
       clone.forEachObject((o) => c.add(o));

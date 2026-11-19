@@ -9,6 +9,7 @@
 import { Canvas, FabricImage, PencilBrush, Point, util } from 'fabric';
 import { displaySize, totalRotation, serializeCanvas, hydrateObjects } from './state.js';
 import { extractTextRuns, isCancelled } from './pdf.js';
+import { findPageImages } from './pdfImages.js';
 
 const MAX_RENDER_PIXELS = 16_000_000;
 /** Tools where one finger scrolls the page (unless it lands on an object). */
@@ -35,6 +36,9 @@ export class PageView {
     this.runsKey = null;
     this.runs = null;
     this.runsResolved = null;
+    this.pdfImages = null;
+    this.pdfImagesResolved = null;
+    this.selectedAtPointerDown = false;
     this.updateSize();
   }
 
@@ -100,6 +104,7 @@ export class PageView {
     this.el.replaceChildren();
     this.pdfCanvas = null;
     this.hoverEl = null;
+    if (this.editor.imagePicker.selection?.view === this) this.editor.imagePicker.clear();
     if (this.editor.activeView === this) {
       this.editor.activeView = null;
       this.editor.onViewLoaded(); // refreshes the properties bar
@@ -239,7 +244,11 @@ export class PageView {
       (e) => {
         if (!this.canvas) return;
         this.canvas.selection = e.pointerType !== 'touch' && this.editor.tool === 'select';
-        if (e.isPrimary) this.gestureTainted = false;
+        if (e.isPrimary) {
+          this.gestureTainted = false;
+          // A click that only deselects something shouldn't also pick a PDF image.
+          this.selectedAtPointerDown = this.editor.getSelection().objects.length > 0;
+        }
       },
       { capture: true },
     );
@@ -327,6 +336,24 @@ export class PageView {
       });
     }
     return this.runs;
+  }
+
+  /* --------------------------- PDF images --------------------------- */
+
+  /** Pictures drawn by the PDF itself on this page (see pdfImages.js). Cached. */
+  getPdfImages() {
+    this.pdfImages ??= (async () => {
+      if (!this.rec.srcId) return [];
+      const page = await this.editor.getPdfPage(this.rec);
+      const optionalContent = await this.editor.getOptionalContent(this.rec);
+      return findPageImages(page, optionalContent);
+    })()
+      .catch((err) => {
+        console.warn('Image detection failed', err);
+        return [];
+      })
+      .then((list) => (this.pdfImagesResolved = list));
+    return this.pdfImages;
   }
 
   showHover(run) {

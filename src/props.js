@@ -42,7 +42,7 @@ const CTX_GROUPS = {
 };
 
 const HINTS = {
-  select: 'Click an object to select it · double-click any page text to edit it',
+  select: 'Click an object to select it · click a picture in the PDF to copy it · double-click page text to edit it',
   editText: 'Click any text on the page to edit it',
   text: 'Click on the page where you want to add text',
   draw: 'Draw freehand on the page',
@@ -55,7 +55,7 @@ const HINTS = {
 };
 
 const TOUCH_HINTS = {
-  select: 'Tap an object to select it · drag to scroll · pinch to zoom',
+  select: 'Tap an object or a picture to select it · drag to scroll · pinch to zoom',
   editText: 'Tap any text on the page to edit it',
   text: 'Tap where you want to add text',
   draw: 'Draw with one finger · two fingers to scroll or zoom',
@@ -94,8 +94,11 @@ export class Props {
 
   refresh() {
     const { view, objects } = this.editor.getSelection();
+    const picked = !objects.length && !!this.editor.imagePicker.selection;
     let ctx = null;
-    if (objects.length) {
+    if (picked) {
+      ctx = null;
+    } else if (objects.length) {
       const ctxs = new Set(objects.map((o) => KIND_CTX[kindOf(o)]));
       ctx = ctxs.size === 1 ? [...ctxs][0] : null;
     } else {
@@ -110,8 +113,11 @@ export class Props {
       const kinds = objects.length ? objects.map(kindOf) : [this.editor.tool];
       if (!kinds.some((k) => k === 'rect' || k === 'ellipse')) groups.delete('fill');
     }
+    if (picked) groups.add('pdfimage');
+    const canPaste = !!this.editor.clipboard && !objects.length && this.editor.tool === 'select' && this.editor.hasDocument;
     $$('[data-group]').forEach((g) => {
-      g.hidden = g.dataset.group === 'actions' ? !objects.length : !groups.has(g.dataset.group);
+      const name = g.dataset.group;
+      g.hidden = name === 'actions' ? !objects.length : name === 'paste' ? !canPaste : !groups.has(name);
     });
     const hint = $('#tool-hint');
     hint.textContent = (IS_TOUCH && TOUCH_HINTS[this.editor.tool]) || HINTS[this.editor.tool] || '';
@@ -220,6 +226,9 @@ export class Props {
 
     $$('#p-hl-swatches [data-color]').forEach((b) => b.addEventListener('click', () => this.apply({ fill: b.dataset.color })));
 
+    $('#pi-copy').addEventListener('click', () => this.editor.imagePicker.copy());
+    $('#pi-save').addEventListener('click', () => this.editor.imagePicker.save());
+    $('#a-paste').addEventListener('click', () => this.editor.paste());
     $('#a-duplicate').addEventListener('click', () => this.editor.duplicateSelection());
     $('#a-front').addEventListener('click', () => this.editor.arrange('front'));
     $('#a-back').addEventListener('click', () => this.editor.arrange('back'));
